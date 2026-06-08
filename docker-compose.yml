@@ -1,0 +1,64 @@
+# ============================================================================
+# Local orchestration: Postgres + Redis + the app, one command:
+#   docker compose up --build
+#
+# During Phase 1 you can bring up just the backing services:
+#   docker compose up -d postgres redis
+# and run the app from your IDE against localhost.
+# ============================================================================
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ticketing-postgres
+    environment:
+      POSTGRES_DB: ticketing
+      POSTGRES_USER: ticketing
+      POSTGRES_PASSWORD: ticketing
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketing -d ticketing"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ticketing-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ticketing-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/ticketing
+      DB_USERNAME: ticketing
+      DB_PASSWORD: ticketing
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: change-me-in-prod-this-is-a-dev-only-secret-key-0123456789
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

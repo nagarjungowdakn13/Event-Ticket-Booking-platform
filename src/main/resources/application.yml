@@ -1,0 +1,88 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: ticket-booking-platform
+
+  datasource:
+    # All connection details come from env vars so the same jar runs locally,
+    # in docker-compose, and on a cloud free tier without rebuilding.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketing}
+    username: ${DB_USERNAME:ticketing}
+    password: ${DB_PASSWORD:ticketing}
+    hikari:
+      # The pool is the real concurrency ceiling for pessimistic-lock booking:
+      # each SELECT ... FOR UPDATE holds a connection for the txn's duration.
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      pool-name: ticketing-pool
+
+  jpa:
+    hibernate:
+      # Flyway owns the schema. Hibernate must never auto-DDL in any profile,
+      # otherwise it would race/conflict with migrations.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        # Surfaces N+1 / implicit-write surprises early during development.
+        format_sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+
+# Application-specific knobs grouped under a custom namespace.
+app:
+  jwt:
+    # Override in every real environment. Must be >= 256 bits for HS256.
+    secret: ${JWT_SECRET:change-me-in-prod-this-is-a-dev-only-secret-key-0123456789}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+  booking:
+    hold-duration-minutes: ${HOLD_DURATION_MINUTES:5}
+    # Concurrency control for the hold path: PESSIMISTIC (SELECT ... FOR UPDATE,
+    # default, best for hot contention) or OPTIMISTIC (@Version + retry).
+    locking-strategy: ${BOOKING_LOCKING_STRATEGY:PESSIMISTIC}
+    optimistic-max-retries: ${BOOKING_OPTIMISTIC_RETRIES:5}
+    max-seats-per-booking: ${BOOKING_MAX_SEATS:10}
+    # Optional app-tier lock in front of the DB (bonus path). Off by default.
+    redis-lock-enabled: ${BOOKING_REDIS_LOCK:false}
+    # Expired-hold release job (Phase 6).
+    release-interval-ms: ${RELEASE_INTERVAL_MS:30000}
+    release-initial-delay-ms: ${RELEASE_INITIAL_DELAY_MS:15000}
+    release-batch-size: ${RELEASE_BATCH_SIZE:200}
+    rate-limit:
+      enabled: ${BOOKING_RATE_LIMIT_ENABLED:true}
+      max-requests: ${BOOKING_RATE_MAX:10}
+      window-seconds: ${BOOKING_RATE_WINDOW:60}
+  admin:
+    # Bootstrap admin seeded on startup if absent. OVERRIDE in production.
+    email: ${ADMIN_EMAIL:admin@ticketing.local}
+    password: ${ADMIN_PASSWORD:admin12345}
+    full-name: ${ADMIN_NAME:Platform Admin}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    com.ticketing: INFO
+    org.flywaydb: INFO
