@@ -1,6 +1,5 @@
 # SeatVault - Enterprise Event Ticket Booking Platform
 
-[![CI Pipeline](https://github.com/nagarjungowdakn13/Event-Ticket-Booking-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/nagarjungowdakn13/Event-Ticket-Booking-platform/actions/workflows/ci.yml)
 [![Project Status](https://img.shields.io/badge/Status-PRODUCTION--READY-brightgreen.svg)](#project-status)
 [![Java Version](https://img.shields.io/badge/Java-17-orange.svg)](https://openjdk.org/projects/jdk/17/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-green.svg)](https://spring.io/projects/spring-boot)
