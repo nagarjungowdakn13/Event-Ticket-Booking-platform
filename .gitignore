@@ -27,3 +27,7 @@ Thumbs.db
 # Spring Boot
 *.original
 HELP.md
+
+# Claude / Agent directories
+.claude/
+
