@@ -171,6 +171,7 @@ public class BookingService {
      * On decline the booking stays PENDING (the user may retry with a new key;
      * otherwise the scheduled job releases the seats), so seats are never stuck.
      */
+    @io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker(name = "paymentGateway", fallbackMethod = "fallbackPay")
     public BookingResponse pay(User user, Long bookingId, PaymentRequest request) {
         Long userId = user.getId();
 
@@ -246,6 +247,13 @@ public class BookingService {
     /** Latest payment attempt for a booking (so "my tickets" can show status/ref/amount); null if none. */
     private com.ticketing.domain.Payment latestPayment(Long bookingId) {
         return paymentRepository.findTopByBookingIdOrderByIdDesc(bookingId).orElse(null);
+    }
+
+    /** Fallback method for payment service circuit breaker */
+    public BookingResponse fallbackPay(User user, Long bookingId, PaymentRequest request, Throwable t) {
+        log.error("Payment gateway circuit breaker tripped or request failed for bookingId={}", bookingId, t);
+        throw new com.ticketing.exception.PaymentFailedException(
+                "Payment gateway is temporarily unavailable. Please try again later.");
     }
 
     // ============================ helpers ============================

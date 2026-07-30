@@ -14,17 +14,17 @@ const TOKEN_KEY = "seatvault.jwt";
 const USER_KEY = "seatvault.user";
 
 // Visual palette assigned to distinct seat prices (highest price = first colour).
-const TIER_COLORS = ["#f5b942", "#22d3ee", "#9a7bff", "#34d399", "#fb6a85"];
+const TIER_COLORS = ["#b45309", "#0e7490", "#2f5fe0", "#047857", "#b91c1c"];
 const TIER_CLASSES = ["t0", "t1", "t2", "t0", "t1"];
 
 // Deterministic poster gradient + emoji per event, by category/id.
 const CATEGORY_STYLE = {
-    Concert:    { emoji: "🎤", grad: "linear-gradient(135deg,#7c5cff,#d946ef)" },
-    Sports:     { emoji: "🏟️", grad: "linear-gradient(135deg,#22d3ee,#0ea5e9)" },
-    Theatre:    { emoji: "🎭", grad: "linear-gradient(135deg,#f97316,#ef4444)" },
-    Comedy:     { emoji: "🎙️", grad: "linear-gradient(135deg,#34d399,#10b981)" },
-    Conference: { emoji: "📊", grad: "linear-gradient(135deg,#6366f1,#8b5cf6)" },
-    Event:      { emoji: "🎉", grad: "linear-gradient(135deg,#7c5cff,#22d3ee)" },
+    Concert:    { emoji: "🎤", grad: "linear-gradient(135deg,#1d4ed8,#0e7490)" },
+    Sports:     { emoji: "🏟️", grad: "linear-gradient(135deg,#0e7490,#cbd0dc)" },
+    Theatre:    { emoji: "🎭", grad: "linear-gradient(135deg,#b45309,#eef0f5)" },
+    Comedy:     { emoji: "🎙️", grad: "linear-gradient(135deg,#047857,#eaecf2)" },
+    Conference: { emoji: "📊", grad: "linear-gradient(135deg,#2f5fe0,#cbd0dc)" },
+    Event:      { emoji: "🎉", grad: "linear-gradient(135deg,#1d4ed8,#eef0f5)" },
 };
 const GRADS = Object.values(CATEGORY_STYLE).map(c => c.grad);
 
@@ -40,6 +40,9 @@ const state = {
     booking: null,          // active PENDING booking (carries amountMinor/currency from API)
     payIdempotencyKey: null,// generated once per checkout, reused across pay retries
     countdown: null,
+    stompClient: null,
+    stompSub: null,
+    previousFocus: null,
 };
 
 // money() formats minor units in the current event's currency.
@@ -84,7 +87,159 @@ function toast(msg, kind = "info", ms = 3800) {
 }
 
 /* --------------------------------- API ---------------------------------- */
+const MOCK_MODE = false; // Set to true to run static files directly in browser without a running backend
+
 async function api(path, { method = "GET", body, auth = true } = {}) {
+    if (MOCK_MODE) {
+        console.log("Mocking API call:", method, path, body);
+        await new Promise(r => setTimeout(r, 400)); // simulate network delay
+
+        // Auth login/register
+        if (path === "/auth/login" || path === "/auth/register") {
+            const email = body?.email || "user@example.com";
+            const fullName = body?.fullName || "Jane Doe";
+            const isAuthAdmin = email.includes("admin");
+            return {
+                token: "mock-jwt-token-12345",
+                refreshToken: "mock-refresh-token-12345",
+                tokenType: "Bearer",
+                expiresInSeconds: 900,
+                userId: 99,
+                email: email,
+                fullName: fullName,
+                role: isAuthAdmin ? "ADMIN" : "USER"
+            };
+        }
+
+        // Events search / list
+        if (path.startsWith("/events?")) {
+            return {
+                content: [
+                    { id: 1, title: "Coldplay Corporate Summit", description: "Music of the Spheres exclusive enterprise experience.", venue: "Wembley Enterprise Arena", eventDateTime: new Date(Date.now() + 86400000 * 5).toISOString(), totalCapacity: 60, availableSeats: 52, currency: "INR", basePriceMinor: 800000, convenienceFeeMinor: 40000 },
+                    { id: 2, title: "Global Sports Cup Finals", description: "B2B VIP sporting championship.", venue: "Stadium Allianz", eventDateTime: new Date(Date.now() + 86400000 * 10).toISOString(), totalCapacity: 80, availableSeats: 70, currency: "INR", basePriceMinor: 1200000, convenienceFeeMinor: 60000 },
+                    { id: 3, title: "Comedy B2B Boardroom Gala", description: "Unwind after the quarterly business review.", venue: "The Boardroom Theater", eventDateTime: new Date(Date.now() + 86400000 * 2).toISOString(), totalCapacity: 40, availableSeats: 0, currency: "INR", basePriceMinor: 500000, convenienceFeeMinor: 30000 }
+                ],
+                totalElements: 3,
+                totalPages: 1,
+                page: 0,
+                first: true,
+                last: true
+            };
+        }
+
+        // Event details
+        if (path.match(/\/events\/\d+$/)) {
+            const id = parseInt(path.split("/").pop());
+            if (id === 1) return { id: 1, title: "Coldplay Corporate Summit", description: "Music of the Spheres exclusive enterprise experience.", venue: "Wembley Enterprise Arena", eventDateTime: new Date(Date.now() + 86400000 * 5).toISOString(), totalCapacity: 60, availableSeats: 52, currency: "INR", basePriceMinor: 800000, convenienceFeeMinor: 40000 };
+            if (id === 2) return { id: 2, title: "Global Sports Cup Finals", description: "B2B VIP sporting championship.", venue: "Stadium Allianz", eventDateTime: new Date(Date.now() + 86400000 * 10).toISOString(), totalCapacity: 80, availableSeats: 70, currency: "INR", basePriceMinor: 1200000, convenienceFeeMinor: 60000 };
+            return { id: 3, title: "Comedy B2B Boardroom Gala", description: "Unwind after the quarterly business review.", venue: "The Boardroom Theater", eventDateTime: new Date(Date.now() + 86400000 * 2).toISOString(), totalCapacity: 40, availableSeats: 0, currency: "INR", basePriceMinor: 500000, convenienceFeeMinor: 30000 };
+        }
+
+        // Event seats
+        if (path.match(/\/events\/\d+\/seats$/)) {
+            const seats = [];
+            const rows = ["A", "B", "C", "D", "E", "F"];
+            const seatsPerRow = 10;
+            let seatIdCounter = 100;
+            rows.forEach((row, rIdx) => {
+                for (let s = 1; s <= seatsPerRow; s++) {
+                    const label = row + s;
+                    let status = "AVAILABLE";
+                    if (s % 7 === 0) status = "BOOKED";
+                    else if (s % 8 === 0) status = "HELD";
+
+                    let tierName = "General";
+                    let priceMinor = 800000;
+                    if (rIdx < 2) {
+                        tierName = "Premium";
+                        priceMinor = 1200000;
+                    }
+
+                    seats.push({
+                        id: seatIdCounter++,
+                        seatLabel: label,
+                        status: status,
+                        tierName: tierName,
+                        priceMinor: priceMinor,
+                        heldByUserId: status === "HELD" ? 99 : null
+                    });
+                }
+            });
+            return seats;
+        }
+
+        // Bookings Hold
+        if (path === "/bookings/hold" && method === "POST") {
+            return {
+                id: 8888,
+                eventId: body.eventId,
+                eventTitle: "Coldplay Corporate Summit",
+                status: "PENDING",
+                seatCount: body.seatIds.length,
+                seatLabels: body.seatIds.map((id, index) => "Seat-" + id),
+                currency: "INR",
+                amountMinor: body.seatIds.length * 840000,
+                feeMinor: body.seatIds.length * 40000,
+                expiresAt: new Date(Date.now() + 300000).toISOString()
+            };
+        }
+
+        // Bookings Pay
+        if (path.match(/\/bookings\/\d+\/pay$/) && method === "POST") {
+            const bId = path.split("/")[2];
+            if (body.paymentMethod === "FAIL_CARD") {
+                throw new Error("Card declined");
+            }
+            if (body.paymentMethod === "TIMEOUT_CARD") {
+                await new Promise(r => setTimeout(r, 1500));
+                throw new Error("Payment provider timed out");
+            }
+            return {
+                id: bId,
+                eventId: 1,
+                eventTitle: "Coldplay Corporate Summit",
+                status: "CONFIRMED",
+                seatCount: 2,
+                seatLabels: ["A5", "A6"],
+                currency: "INR",
+                amountMinor: 1680000,
+                feeMinor: 80000,
+                confirmedAt: new Date().toISOString(),
+                payment: {
+                    status: "APPROVED",
+                    providerReference: "PAY-STRIPE-MOCK-9999",
+                    failureReason: null
+                }
+            };
+        }
+
+        // Cancel hold
+        if (path.match(/\/bookings\/\d+\/cancel$/) && method === "POST") {
+            return { id: 8888, status: "CANCELLED" };
+        }
+
+        // My tickets / Bookings list
+        if (path.startsWith("/bookings")) {
+            return {
+                content: [
+                    {
+                        id: 9901,
+                        eventTitle: "Coldplay Corporate Summit",
+                        seatCount: 2,
+                        seatLabels: ["A5", "A6"],
+                        currency: "INR",
+                        amountMinor: 1680000,
+                        status: "CONFIRMED",
+                        payment: {
+                            status: "APPROVED",
+                            providerReference: "PAY-STRIPE-MOCK-1111"
+                        }
+                    }
+                ]
+            };
+        }
+    }
+
     const headers = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (auth && state.token) headers["Authorization"] = `Bearer ${state.token}`;
@@ -158,10 +313,76 @@ function logout() {
 }
 
 /* =============================== MODALS ================================= */
-function openModal(id) { $("#" + id).classList.remove("hidden"); }
-function closeModal(id) { $("#" + id).classList.add("hidden"); }
+function openModal(id) {
+    state.previousFocus = document.activeElement;
+    const modal = $("#" + id);
+    modal.classList.remove("hidden");
+    const firstInput = modal.querySelector("input, select, button.modal-close, [data-close]");
+    if (firstInput) {
+        setTimeout(() => firstInput.focus(), 50);
+    }
+}
+function closeModal(id) {
+    $("#" + id).classList.add("hidden");
+    if (state.previousFocus) {
+        state.previousFocus.focus();
+        state.previousFocus = null;
+    }
+}
 $$("[data-close]").forEach(b => b.addEventListener("click", () => closeModal(b.dataset.close)));
-$$(".modal-backdrop, .drawer-backdrop").forEach(bd => bd.addEventListener("click", e => { if (e.target === bd) bd.classList.add("hidden"); }));
+$$(".modal-backdrop, .drawer-backdrop").forEach(bd => bd.addEventListener("click", e => { if (e.target === bd) closeModal(bd.id); }));
+
+document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+        const active = $$(".modal-backdrop, .drawer-backdrop").find(m => !m.classList.contains("hidden"));
+        if (active) {
+            closeModal(active.id);
+        }
+    }
+});
+
+/* Inline Form Validation Helpers */
+function showInlineError(input, message) {
+    let errorEl = input.nextElementSibling;
+    if (!errorEl || !errorEl.classList.contains("inline-error")) {
+        errorEl = el("span", "inline-error", message);
+        errorEl.style.color = "var(--red)";
+        errorEl.style.fontSize = "0.78rem";
+        errorEl.style.marginTop = "4px";
+        errorEl.style.display = "block";
+        input.after(errorEl);
+    } else {
+        errorEl.textContent = message;
+    }
+    input.style.borderColor = "var(--red)";
+}
+
+function clearInlineError(input) {
+    const errorEl = input.nextElementSibling;
+    if (errorEl && errorEl.classList.contains("inline-error")) {
+        errorEl.remove();
+    }
+    input.style.borderColor = "";
+}
+
+function validateEmail(input) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(input.value.trim())) {
+        showInlineError(input, "Please enter a valid email address.");
+        return false;
+    }
+    clearInlineError(input);
+    return true;
+}
+
+function validatePassword(input) {
+    if (input.value.length < 8) {
+        showInlineError(input, "Password must be at least 8 characters.");
+        return false;
+    }
+    clearInlineError(input);
+    return true;
+}
 
 /* nav + dropdown wiring */
 $("#navLogin").addEventListener("click", () => openModal("authModal"));
@@ -204,6 +425,7 @@ function showHome() {
     $("#viewBooking").classList.add("hidden");
     $("#viewHome").classList.remove("hidden");
     clearInterval(state.countdown);
+    disconnectWebSocket();
     window.scrollTo({ top: 0, behavior: "smooth" });
     loadEvents();
 }
@@ -211,6 +433,68 @@ function showBooking() {
     $("#viewHome").classList.add("hidden");
     $("#viewBooking").classList.remove("hidden");
     window.scrollTo({ top: 0 });
+}
+
+function connectWebSocket(eventId) {
+    if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+        console.log("WebSocket connection bypassed in MOCK_MODE.");
+        return;
+    }
+    disconnectWebSocket();
+    
+    const socket = new SockJS("/ws-seatmap");
+    state.stompClient = Stomp.over(socket);
+    state.stompClient.debug = null; // Quiet client log spam
+    
+    state.stompClient.connect({}, () => {
+        if (!state.event || state.event.id !== eventId) return;
+        state.stompSub = state.stompClient.subscribe(`/topic/events/${eventId}/seats`, (message) => {
+            const updates = JSON.parse(message.body);
+            if (updates && Array.isArray(updates)) {
+                updates.forEach(upd => {
+                    const idx = state.seats.findIndex(s => s.id === upd.seatId);
+                    if (idx !== -1) {
+                        state.seats[idx].status = upd.status;
+                        state.seats[idx].heldByUserId = upd.heldByUserId;
+                    }
+                });
+                renderSeatmap();
+                
+                // Release selections if taken concurrently by another user
+                let selectedChanged = false;
+                for (const [selId, selSeat] of state.selected.entries()) {
+                    const current = state.seats.find(s => s.id === selId);
+                    if (current && current.status !== "AVAILABLE" && current.heldByUserId !== state.user?.userId) {
+                        state.selected.delete(selId);
+                        selectedChanged = true;
+                    }
+                }
+                if (selectedChanged) {
+                    toast("Some selected seats were held by another user.", "info");
+                    renderSummary();
+                }
+            }
+        });
+    }, (err) => {
+        // Retry connection after a short duration on connection drops
+        setTimeout(() => {
+            if (state.event && state.event.id === eventId && !$("#viewBooking").classList.contains("hidden")) {
+                connectWebSocket(eventId);
+                refreshAfterChange();
+            }
+        }, 5000);
+    });
+}
+
+function disconnectWebSocket() {
+    if (state.stompSub) {
+        try { state.stompSub.unsubscribe(); } catch {}
+        state.stompSub = null;
+    }
+    if (state.stompClient) {
+        try { state.stompClient.disconnect(); } catch {}
+        state.stompClient = null;
+    }
 }
 
 /* =============================== EVENTS ================================= */
@@ -306,6 +590,24 @@ async function openBooking(ev) {
     $("#bbTitle").textContent = ev.title;
     $("#bbVenue").textContent = "📍 " + ev.venue;
     $("#bbDate").textContent = "🗓️ " + fmtDate(ev.eventDateTime);
+    
+    // Set Host info dynamically (Luma style)
+    const category = cat || "Event";
+    $("#hostAvatar").textContent = category.substring(0, 2).toUpperCase();
+    $("#eventHost").textContent = `${category} Premium Host`;
+
+    // Wire Luma actions
+    const addToCalBtn = $("#addToCalBtn");
+    const shareEventBtn = $("#shareEventBtn");
+    
+    const newAddToCalBtn = addToCalBtn.cloneNode(true);
+    const newShareEventBtn = shareEventBtn.cloneNode(true);
+    addToCalBtn.parentNode.replaceChild(newAddToCalBtn, addToCalBtn);
+    shareEventBtn.parentNode.replaceChild(newShareEventBtn, shareEventBtn);
+
+    newAddToCalBtn.addEventListener("click", () => downloadIcs(ev));
+    newShareEventBtn.addEventListener("click", () => shareEvent(ev));
+
     showBooking();
     $("#seatmap").innerHTML = "";
     $("#seatmapLoading").classList.remove("hidden");
@@ -320,7 +622,48 @@ async function openBooking(ev) {
         $("#bbAvail").textContent = `${full.availableSeats}/${full.totalCapacity} available`;
         renderSummary();
         renderSeatmap();
+        connectWebSocket(ev.id);
     } catch (err) { toast(err.message, "error"); }
+}
+
+function downloadIcs(event) {
+    const date = new Date(event.eventDateTime);
+    const end = new Date(date.getTime() + 2 * 60 * 60 * 1000); // assume 2 hours
+    const fmt = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    
+    const icsContent = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//SeatVault//Event//EN",
+        "BEGIN:VEVENT",
+        `UID:sv-event-${event.id}@seatvault.com`,
+        `DTSTAMP:${fmt(new Date())}`,
+        `DTSTART:${fmt(date)}`,
+        `DTEND:${fmt(end)}`,
+        `SUMMARY:${event.title}`,
+        `DESCRIPTION:${event.description || ""}`,
+        `LOCATION:${event.venue}`,
+        "END:VEVENT",
+        "END:VCALENDAR"
+    ].join("\r\n");
+    
+    const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${event.title.replace(/\s+/g, "_")}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast("iCalendar event downloaded!", "success");
+}
+
+function shareEvent(event) {
+    const url = `${window.location.origin}${window.location.pathname}?event=${event.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+        toast("Event link copied to clipboard!", "success");
+    }).catch(() => {
+        toast("Failed to copy link.", "error");
+    });
 }
 
 function renderSeatmap() {
@@ -643,5 +986,27 @@ $("#createForm").addEventListener("submit", async e => {
 });
 
 /* =============================== BOOTSTRAP ============================= */
+const loginEmail = $("#loginForm [name='email']");
+const loginPassword = $("#loginForm [name='password']");
+if (loginEmail) loginEmail.addEventListener("input", () => validateEmail(loginEmail));
+if (loginPassword) loginPassword.addEventListener("input", () => validatePassword(loginPassword));
+
+const regEmail = $("#registerForm [name='email']");
+const regPassword = $("#registerForm [name='password']");
+if (regEmail) regEmail.addEventListener("input", () => validateEmail(regEmail));
+if (regPassword) regPassword.addEventListener("input", () => validatePassword(regPassword));
+
 renderUser();
-loadEvents();
+// Check for shared event link parameters (Luma/District style)
+const params = new URLSearchParams(window.location.search);
+const evId = params.get("event");
+if (evId) {
+    api(`/events/${evId}`, { auth: false }).then(ev => {
+        // Direct route to the details page if a shared event ID is in the URL
+        openBooking(ev);
+    }).catch(() => {
+        loadEvents();
+    });
+} else {
+    loadEvents();
+}

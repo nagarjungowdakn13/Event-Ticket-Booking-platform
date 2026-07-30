@@ -128,7 +128,10 @@ public class SeatReservationService {
         }
         // Dirty-checked seats are flushed on commit; optimistic version check fires here.
         seatRepository.saveAll(seats);
-        cacheInvalidator.evictEventAvailability(event.getId());
+        List<com.ticketing.dto.booking.SeatStatusUpdate> updates = seats.stream()
+                .map(s -> new com.ticketing.dto.booking.SeatStatusUpdate(s.getId(), "HELD", user.getId()))
+                .toList();
+        cacheInvalidator.evictEventAvailability(event.getId(), updates);
         log.info("Held {} seat(s) for user={} event={} booking={}",
                 seats.size(), user.getId(), event.getId(), booking.getId());
         return BookingResponse.of(booking, seats);
@@ -168,7 +171,10 @@ public class SeatReservationService {
         }
         booking.confirm(now);
         seatRepository.saveAll(seats);
-        cacheInvalidator.evictEventAvailability(booking.getEvent().getId());
+        List<com.ticketing.dto.booking.SeatStatusUpdate> updates = seats.stream()
+                .map(s -> new com.ticketing.dto.booking.SeatStatusUpdate(s.getId(), "BOOKED", null))
+                .toList();
+        cacheInvalidator.evictEventAvailability(booking.getEvent().getId(), updates);
         log.info("Confirmed booking={} ({} seats) for user={}", bookingId, seats.size(), userId);
         return BookingResponse.of(booking, seats);
     }
@@ -192,7 +198,10 @@ public class SeatReservationService {
         }
         booking.cancel();
         seatRepository.saveAll(seats);
-        cacheInvalidator.evictEventAvailability(booking.getEvent().getId());
+        List<com.ticketing.dto.booking.SeatStatusUpdate> updates = seats.stream()
+                .map(s -> new com.ticketing.dto.booking.SeatStatusUpdate(s.getId(), "AVAILABLE", null))
+                .toList();
+        cacheInvalidator.evictEventAvailability(booking.getEvent().getId(), updates);
         log.info("Cancelled booking={} for user={}, released {} seats", bookingId, userId, seats.size());
         return BookingResponse.of(booking, seats);
     }

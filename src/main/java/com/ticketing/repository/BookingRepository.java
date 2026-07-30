@@ -19,6 +19,9 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     /** "My bookings", paginated. */
     Page<Booking> findByUserId(Long userId, Pageable pageable);
 
+    /** Check if any bookings exist for a given event ID. */
+    boolean existsByEventId(Long eventId);
+
     /**
      * Locks the booking row ({@code SELECT ... FOR UPDATE}). Used by the payment
      * claim to serialize all payment attempts for one booking, so two concurrent

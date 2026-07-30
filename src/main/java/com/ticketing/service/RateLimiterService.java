@@ -62,23 +62,30 @@ public class RateLimiterService {
      * {@link TooManyRequestsException} if the limit is exceeded. No-op when disabled.
      */
     public void checkLimit(String bucket, Long userId) {
+        checkLimitByKey(bucket, String.valueOf(userId), properties.maxRequests(), properties.windowSeconds());
+    }
+
+    /**
+     * Records one request for {@code keyIdentifier} in the named {@code bucket} and throws
+     * {@link TooManyRequestsException} if the limit is exceeded.
+     */
+    public void checkLimitByKey(String bucket, String keyIdentifier, int maxRequests, int windowSeconds) {
         if (!properties.enabled()) {
             return;
         }
-        int window = properties.windowSeconds();
-        long windowEpoch = System.currentTimeMillis() / 1000 / window;
-        String key = "rl:" + bucket + ":" + userId + ":" + windowEpoch;
+        long windowEpoch = System.currentTimeMillis() / 1000 / windowSeconds;
+        String key = "rl:" + bucket + ":" + keyIdentifier + ":" + windowEpoch;
 
-        Long count = redis.execute(INCR_SCRIPT, List.of(key), String.valueOf(window));
+        Long count = redis.execute(INCR_SCRIPT, List.of(key), String.valueOf(windowSeconds));
         long current = (count == null) ? 0 : count;
 
-        if (current > properties.maxRequests()) {
-            long ttl = ttlSeconds(key, window);
-            log.debug("Rate limit exceeded for user={} bucket={} ({}/{} in {}s window)",
-                    userId, bucket, current, properties.maxRequests(), window);
+        if (current > maxRequests) {
+            long ttl = ttlSeconds(key, windowSeconds);
+            log.debug("Rate limit exceeded for key={} bucket={} ({}/{} in {}s window)",
+                    keyIdentifier, bucket, current, maxRequests, windowSeconds);
             throw new TooManyRequestsException(
-                    "Rate limit exceeded: max " + properties.maxRequests()
-                            + " requests per " + window + "s. Try again in " + ttl + "s.",
+                    "Rate limit exceeded: max " + maxRequests
+                            + " requests per " + windowSeconds + "s. Try again in " + ttl + "s.",
                     ttl);
         }
     }

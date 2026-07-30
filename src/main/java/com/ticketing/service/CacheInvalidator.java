@@ -1,11 +1,14 @@
 package com.ticketing.service;
 
 import com.ticketing.config.CacheConfig;
+import com.ticketing.dto.booking.SeatStatusUpdate;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.util.List;
 
 /**
  * Programmatic cache eviction for code paths where the affected {@code eventId}
@@ -28,22 +31,31 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class CacheInvalidator {
 
     private final CacheManager cacheManager;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public CacheInvalidator(CacheManager cacheManager) {
+    public CacheInvalidator(CacheManager cacheManager, SimpMessagingTemplate messagingTemplate) {
         this.cacheManager = cacheManager;
+        this.messagingTemplate = messagingTemplate;
     }
 
     /** Evict all cached reads whose contents depend on this event's availability. */
     public void evictEventAvailability(Long eventId) {
+        evictEventAvailability(eventId, null);
+    }
+
+    /** Evict cache and broadcast real-time WebSocket seat updates. */
+    public void evictEventAvailability(Long eventId, List<SeatStatusUpdate> updates) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     doEvict(eventId);
+                    broadcastWebSocket(eventId, updates);
                 }
             });
         } else {
             doEvict(eventId);
+            broadcastWebSocket(eventId, updates);
         }
     }
 
@@ -51,6 +63,16 @@ public class CacheInvalidator {
         evict(CacheConfig.EVENTS, eventId);
         evict(CacheConfig.EVENT_SEATS, eventId);
         clear(CacheConfig.EVENT_SEARCH);
+    }
+
+    private void broadcastWebSocket(Long eventId, List<SeatStatusUpdate> updates) {
+        if (updates != null && !updates.isEmpty()) {
+            try {
+                messagingTemplate.convertAndSend("/topic/events/" + eventId + "/seats", updates);
+            } catch (Exception ex) {
+                // Fail-silent for WebSocket messaging to ensure transaction outcome is unaffected
+            }
+        }
     }
 
     private void evict(String cacheName, Object key) {

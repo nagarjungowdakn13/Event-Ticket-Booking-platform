@@ -1,6 +1,7 @@
 package com.ticketing.config;
 
 import com.ticketing.security.RateLimitInterceptor;
+import com.ticketing.security.IpRateLimitInterceptor;
 import com.ticketing.service.RateLimiterService;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -24,5 +25,9 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new RateLimitInterceptor(rateLimiterService))
                 .addPathPatterns("/api/v1/bookings/hold");
+
+        // Limit login attempts to 10 per minute per IP address
+        registry.addInterceptor(new IpRateLimitInterceptor(rateLimiterService, "login-ip", 10, 60))
+                .addPathPatterns("/api/v1/auth/login");
     }
 }

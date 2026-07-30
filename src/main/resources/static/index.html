@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="/styles.css"/>
+    <link rel="stylesheet" href="styles.css"/>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%9F%EF%B8%8F%3C/text%3E%3C/svg%3E"/>
 </head>
 <body>
@@ -84,6 +84,25 @@
                 <span id="bbDate">🗓️ Date</span>
                 <span id="bbAvail" class="bb-avail">— available</span>
             </div>
+        </div>
+    </div>
+
+    <!-- Luma/District-style Event Header Info Bar -->
+    <div class="event-info-bar">
+        <div class="host-info">
+            <div class="host-avatar" id="hostAvatar">SV</div>
+            <div>
+                <div class="host-label">Hosted by</div>
+                <div class="host-name" id="eventHost">SeatVault Community</div>
+            </div>
+        </div>
+        <div class="event-actions">
+            <button class="action-link-btn" id="addToCalBtn">
+                <span class="icon">📅</span> Add to Calendar
+            </button>
+            <button class="action-link-btn" id="shareEventBtn">
+                <span class="icon">🔗</span> Share Event
+            </button>
         </div>
     </div>
 
@@ -256,6 +275,13 @@
     </aside>
 </div>
 
-<script src="/app.js"></script>
+<!-- ============================== FOOTER ============================== -->
+<footer class="footer" style="text-align: center; padding: 24px; margin-top: 40px; border-top: 1px solid var(--border); font-size: 0.85rem; color: var(--muted);">
+    <p>&copy; 2026 SeatVault. All rights reserved. &middot; <a href="PrivacyPolicy.html" style="color: var(--primary); text-decoration: none;">Privacy Policy</a> &middot; <a href="TermsOfService.html" style="color: var(--primary); text-decoration: none;">Terms of Service</a></p>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

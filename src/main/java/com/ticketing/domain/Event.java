@@ -28,10 +28,16 @@ import java.util.List;
  */
 @Entity
 @Table(name = "events")
+@org.hibernate.annotations.SQLDelete(sql = "UPDATE events SET deleted = true WHERE id = ?")
+@org.hibernate.annotations.SQLRestriction("deleted = false")
+@jakarta.persistence.EntityListeners(EventAuditListener.class)
 @Getter
 @Setter
 @NoArgsConstructor
 public class Event extends BaseEntity {
+
+    @Column(nullable = false)
+    private boolean deleted = false;
 
     @Column(nullable = false)
     private String title;

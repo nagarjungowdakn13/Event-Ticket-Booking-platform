@@ -15,6 +15,10 @@ spring:
       # The pool is the real concurrency ceiling for pessimistic-lock booking:
       # each SELECT ... FOR UPDATE holds a connection for the txn's duration.
       maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 20000
       pool-name: ticketing-pool
 
   jpa:
@@ -40,13 +44,22 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 2s
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:20}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: 2000ms
 
 # Application-specific knobs grouped under a custom namespace.
 app:
   jwt:
     # Override in every real environment. Must be >= 256 bits for HS256.
     secret: ${JWT_SECRET:change-me-in-prod-this-is-a-dev-only-secret-key-0123456789}
-    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:15}
+    refresh-expiration-days: ${JWT_REFRESH_EXPIRATION_DAYS:7}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
   booking:
     hold-duration-minutes: ${HOLD_DURATION_MINUTES:5}
     # Concurrency control for the hold path: PESSIMISTIC (SELECT ... FOR UPDATE,
@@ -80,9 +93,22 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
 
 logging:
   level:
     com.ticketing: INFO
     org.flywaydb: INFO
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentGateway:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        slowCallRateThreshold: 75
+        slowCallDurationThreshold: 2000ms

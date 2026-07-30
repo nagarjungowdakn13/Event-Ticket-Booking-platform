@@ -13,6 +13,7 @@ import com.ticketing.exception.ConflictException;
 import com.ticketing.exception.ResourceNotFoundException;
 import com.ticketing.repository.EventRepository;
 import com.ticketing.repository.SeatRepository;
+import com.ticketing.repository.BookingRepository;
 import com.ticketing.repository.projection.EventAvailability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,10 +57,14 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final SeatRepository seatRepository;
+    private final BookingRepository bookingRepository;
 
-    public EventService(EventRepository eventRepository, SeatRepository seatRepository) {
+    public EventService(EventRepository eventRepository,
+                        SeatRepository seatRepository,
+                        BookingRepository bookingRepository) {
         this.eventRepository = eventRepository;
         this.seatRepository = seatRepository;
+        this.bookingRepository = bookingRepository;
     }
 
     // ============================ Admin writes ============================
@@ -131,12 +136,10 @@ public class EventService {
     public void delete(Long id) {
         Event event = eventRepository.findById(id)
                 .orElseThrow(() -> notFound(id));
-        try {
-            eventRepository.delete(event);
-            eventRepository.flush(); // force the FK check now so we can catch it
-        } catch (DataIntegrityViolationException ex) {
+        if (bookingRepository.existsByEventId(id)) {
             throw new ConflictException("Cannot delete an event that has bookings");
         }
+        eventRepository.delete(event);
         log.info("Deleted event id={}", id);
     }
 

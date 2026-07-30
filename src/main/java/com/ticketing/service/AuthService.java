@@ -18,6 +18,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.ticketing.repository.RefreshTokenRepository;
+import com.ticketing.domain.RefreshToken;
+import com.ticketing.exception.BadRequestException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.UUID;
+
 /**
  * Registration and login. The service never returns entities — only the
  * {@link AuthResponse} DTO — and never stores raw passwords.
@@ -31,17 +39,22 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final JwtProperties jwtProperties;
     private final long expirationSeconds;
 
     public AuthService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
                        AuthenticationManager authenticationManager,
                        JwtService jwtService,
+                       RefreshTokenRepository refreshTokenRepository,
                        JwtProperties jwtProperties) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtService = jwtService;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.jwtProperties = jwtProperties;
         this.expirationSeconds = jwtProperties.expirationMinutes() * 60;
     }
 
@@ -73,7 +86,7 @@ public class AuthService {
      * surfaces as {@code BadCredentialsException} → 401, with no hint as to which
      * was wrong (avoids user enumeration).
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.email(), request.password())
@@ -84,10 +97,85 @@ public class AuthService {
         return toAuthResponse(user);
     }
 
-    private AuthResponse toAuthResponse(User user) {
-        String token = jwtService.generateToken(user.getEmail(), user.getRole().name());
+    /**
+     * Rotates refresh tokens and issues a new access token. If token reuse is detected,
+     * all active refresh tokens for the user are revoked.
+     */
+    @Transactional
+    public AuthResponse refresh(String tokenValue) {
+        RefreshToken refreshToken = refreshTokenRepository.findByToken(tokenValue)
+                .orElseThrow(() -> new BadRequestException("Invalid refresh token"));
+
+        if (refreshToken.isRevoked()) {
+            // Token reuse detected. Revoke everything for this user as a security measure.
+            List<RefreshToken> userTokens = refreshTokenRepository.findAll()
+                    .stream()
+                    .filter(t -> t.getUser().getId().equals(refreshToken.getUser().getId()))
+                    .toList();
+            for (RefreshToken t : userTokens) {
+                t.setRevoked(true);
+            }
+            refreshTokenRepository.saveAll(userTokens);
+            log.warn("Security Alert: Refresh token reuse detected for user id={}. Revoking all user tokens.", refreshToken.getUser().getId());
+            throw new BadRequestException("Invalid refresh token state");
+        }
+
+        if (refreshToken.getExpiresAt().isBefore(Instant.now())) {
+            throw new BadRequestException("Refresh token expired");
+        }
+
+        // Revoke old token
+        refreshToken.setRevoked(true);
+        refreshTokenRepository.save(refreshToken);
+
+        // Generate rotated token family
+        User user = refreshToken.getUser();
+        String newRefreshTokenValue = UUID.randomUUID().toString();
+        RefreshToken newRefreshToken = new RefreshToken(
+                newRefreshTokenValue,
+                user,
+                Instant.now().plus(jwtProperties.refreshExpirationDays(), ChronoUnit.DAYS)
+        );
+        newRefreshToken.setParentToken(tokenValue);
+        refreshTokenRepository.save(newRefreshToken);
+
+        String newAccessToken = jwtService.generateToken(user.getEmail(), user.getRole().name());
+
         return AuthResponse.bearer(
-                token,
+                newAccessToken,
+                newRefreshTokenValue,
+                expirationSeconds,
+                user.getId(),
+                user.getEmail(),
+                user.getFullName(),
+                user.getRole().name()
+        );
+    }
+
+    /**
+     * Invalidates a refresh token upon logout.
+     */
+    @Transactional
+    public void logout(String tokenValue) {
+        refreshTokenRepository.findByToken(tokenValue).ifPresent(refreshToken -> {
+            refreshToken.setRevoked(true);
+            refreshTokenRepository.save(refreshToken);
+        });
+    }
+
+    private AuthResponse toAuthResponse(User user) {
+        String accessToken = jwtService.generateToken(user.getEmail(), user.getRole().name());
+        String refreshTokenValue = UUID.randomUUID().toString();
+        RefreshToken refreshToken = new RefreshToken(
+                refreshTokenValue,
+                user,
+                Instant.now().plus(jwtProperties.refreshExpirationDays(), ChronoUnit.DAYS)
+        );
+        refreshTokenRepository.save(refreshToken);
+
+        return AuthResponse.bearer(
+                accessToken,
+                refreshTokenValue,
                 expirationSeconds,
                 user.getId(),
                 user.getEmail(),

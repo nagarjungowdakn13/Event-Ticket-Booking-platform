@@ -1,37 +1,43 @@
-name: CI
+name: SeatVault CI/CD Pipeline
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
+    branches: [ main, master ]
 
 jobs:
-  build-and-test:
-    name: Build, unit + integration tests
+  build:
+    name: Build, Verify and Scan
     runs-on: ubuntu-latest
-    # GitHub-hosted runners ship with a running Docker daemon, so Testcontainers
-    # (Postgres + Redis) works out of the box for the integration/concurrency tests.
+
+    services:
+      # Testcontainers will automatically spin up PostgreSQL and Redis,
+      # but we can declare Docker socket mapping as standard for Testcontainers.
+      docker:
+        image: docker:dind
+        options: --privileged
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
           java-version: '17'
-          cache: maven
+          distribution: 'temurin'
+          cache: 'maven'
 
-      - name: Build, unit tests, integration tests (Testcontainers)
-        run: ./mvnw -B -ntp verify
+      - name: Make Maven Wrapper Executable
+        run: chmod +x mvnw
 
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports
-          path: |
-            target/surefire-reports/
-            target/failsafe-reports/
-          if-no-files-found: ignore
+      - name: Run Unit & Integration Tests (Maven Verify)
+        # Verify runs failsafe integration tests using Testcontainers
+        run: ./mvnw clean verify
+
+      - name: Run OWASP Dependency Check
+        run: ./mvnw org.owasp:dependency-check-maven:check
+
+      - name: Build Docker Image
+        run: docker build -t seatvault-app:${{ github.sha }} .

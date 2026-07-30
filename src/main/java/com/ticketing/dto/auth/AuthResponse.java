@@ -6,6 +6,7 @@ package com.ticketing.dto.auth;
  */
 public record AuthResponse(
         String token,
+        String refreshToken,
         String tokenType,
         long expiresInSeconds,
         Long userId,
@@ -13,8 +14,8 @@ public record AuthResponse(
         String fullName,
         String role
 ) {
-    public static AuthResponse bearer(String token, long expiresInSeconds,
+    public static AuthResponse bearer(String token, String refreshToken, long expiresInSeconds,
                                       Long userId, String email, String fullName, String role) {
-        return new AuthResponse(token, "Bearer", expiresInSeconds, userId, email, fullName, role);
+        return new AuthResponse(token, refreshToken, "Bearer", expiresInSeconds, userId, email, fullName, role);
     }
 }

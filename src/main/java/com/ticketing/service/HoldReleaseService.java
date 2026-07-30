@@ -72,7 +72,7 @@ public class HoldReleaseService {
         }
 
         Set<Long> bookingIds = new HashSet<>();
-        Set<Long> eventIds = new HashSet<>();
+        java.util.Map<Long, List<com.ticketing.dto.booking.SeatStatusUpdate>> updatesByEvent = new java.util.HashMap<>();
         int released = 0;
         for (Seat seat : expired) {
             // Re-check under the lock: defends against a confirm that committed between
@@ -86,9 +86,10 @@ public class HoldReleaseService {
             if (seat.getBookingId() != null) {
                 bookingIds.add(seat.getBookingId());
             }
-            eventIds.add(seat.getEvent().getId());
             seat.release();
             released++;
+            updatesByEvent.computeIfAbsent(seat.getEvent().getId(), k -> new java.util.ArrayList<>())
+                    .add(new com.ticketing.dto.booking.SeatStatusUpdate(seat.getId(), "AVAILABLE", null));
         }
         seatRepository.saveAll(expired);
 
@@ -101,8 +102,8 @@ public class HoldReleaseService {
             bookingRepository.saveAll(bookings);
         }
 
-        // Availability for these events changed — drop their cached reads.
-        eventIds.forEach(cacheInvalidator::evictEventAvailability);
+        // Availability for these events changed — drop their cached reads and broadcast updates.
+        updatesByEvent.forEach(cacheInvalidator::evictEventAvailability);
 
         if (released > 0) {
             log.info("Released {} expired seat hold(s); expired {} booking(s)", released, bookingIds.size());

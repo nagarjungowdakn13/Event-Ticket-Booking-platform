@@ -41,4 +41,17 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
     }
+
+    @Operation(summary = "Rotate access and refresh tokens")
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody com.ticketing.dto.auth.RefreshRequest request) {
+        return ResponseEntity.ok(authService.refresh(request.refreshToken()));
+    }
+
+    @Operation(summary = "Log out and invalidate the refresh token")
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody com.ticketing.dto.auth.RefreshRequest request) {
+        authService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
 }

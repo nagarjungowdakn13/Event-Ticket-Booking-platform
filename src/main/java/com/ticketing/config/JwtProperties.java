@@ -11,5 +11,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param expirationMinutes token time-to-live.
  */
 @ConfigurationProperties(prefix = "app.jwt")
-public record JwtProperties(String secret, long expirationMinutes) {
+public record JwtProperties(
+        String secret,
+        long expirationMinutes,
+        long refreshExpirationDays
+) {
 }
