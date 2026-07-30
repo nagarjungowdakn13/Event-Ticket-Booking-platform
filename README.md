@@ -7,15 +7,7 @@
 
 SeatVault is a high-performance, concurrency-safe, enterprise event ticketing platform built with Spring Boot 3, PostgreSQL, Redis, and Vanilla JS. It is designed to handle high-demand ticket drops, zero-overselling guarantees, payment idempotency, virtual waiting rooms, PDF e-ticket generation, gate check-in scanning, and production observability.
 
----
 
-### Homepage Overview
-![Homepage Preview](docs/images/homepage_preview_bengaluru.png)
-
-### Dynamic Booking & Seat Map
-![Booking Detail Preview](docs/images/booking_preview_rupees.png)
-
----
 
 ## 🚀 Project Status
 
