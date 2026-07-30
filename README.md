@@ -10,10 +10,10 @@ SeatVault is a high-performance, concurrency-safe, enterprise event ticketing pl
 ---
 
 ### Homepage Overview
-![Homepage Preview](docs/images/homepage_preview.png)
+![Homepage Preview](docs/images/homepage_preview_bengaluru.png)
 
 ### Dynamic Booking & Seat Map
-![Booking Detail Preview](docs/images/booking_preview.png)
+![Booking Detail Preview](docs/images/booking_preview_rupees.png)
 
 ---
 
